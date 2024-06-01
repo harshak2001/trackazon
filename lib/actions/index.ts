@@ -91,7 +91,7 @@ export async function getSimilarProducts(productId: string) {
     console.log(error);
   }
 }
-
+// d
 export async function addUserEmailToProduct(
   productId: string,
   userEmail: string
