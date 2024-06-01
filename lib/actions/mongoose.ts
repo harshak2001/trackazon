@@ -2,6 +2,9 @@ import mongoose from "mongoose";
 
 let isConnected = false; // Variable to track the connection status
 
+const dns = require("dns");
+dns.setServers(["8.8.8.8", "8.8.4.4"]);
+
 export const connectToDB = async () => {
   mongoose.set("strictQuery", true);
 
@@ -11,11 +14,15 @@ export const connectToDB = async () => {
   if (isConnected) return console.log("=> using existing database connection");
 
   try {
-    await mongoose.connect(process.env.MONGODB_URI);
+    await mongoose.connect(process.env.MONGODB_URI, {
+      serverSelectionTimeoutMS: 30000,
+      socketTimeoutMS: 45000,
+      family: 4, // Use IPv4, skip trying IPv6
+    });
 
     isConnected = true;
 
-    console.log("MongoDB Connected");
+    // console.log("MongoDB Connected");
   } catch (error) {
     console.log(error);
   }
