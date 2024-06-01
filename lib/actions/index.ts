@@ -80,6 +80,8 @@ export async function getSimilarProducts(productId: string) {
 
     const currentProduct = await Product.findById(productId);
 
+    console.log(currentProduct);
+
     if (!currentProduct) return null;
 
     const similarProducts = await Product.find({
