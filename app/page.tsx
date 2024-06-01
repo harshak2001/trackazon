@@ -1,56 +1,93 @@
-import HeroCarousel from "@/components/HeroCarousel";
-import Searchbar from "@/components/Searchbar";
-import Image from "next/image";
-import React from "react";
-import { getAllProducts } from "@/lib/actions";
-import ProductCard from "@/components/ProductCard";
+import { NextResponse } from "next/server";
 
-const Home = async () => {
-  const allProducts = await getAllProducts();
-  return (
-    <>
-      <section className="px-6 md:px-20 py-6  ">
-        <div className="flex max-xl:flex-col gap-10">
-          <div className="flex flex-col justify-center">
-            <p className="small-text">
-              Smart Shopping Starts Here:
-              <Image
-                src="/assets/icons/arrow-right.svg"
-                alt="arrow-right"
-                width={16}
-                height={16}
-              />
-            </p>
+import {
+  getLowestPrice,
+  getHighestPrice,
+  getAveragePrice,
+  getEmailNotifType,
+} from "@/lib/utils";
+// import { connectToDB } from "@/lib/mongoose";
+import Product from "@/lib/models/product.model";
+import { scrapeAmazonProduct } from "@/lib/scraper";
+import { generateEmailBody, sendEmail } from "@/lib/nodemailer";
+import { connectToDB } from "@/lib/actions/mongoose";
 
-            <h1 className="head-text">
-              Unleash the Power of
-              <span className="text-orange-600"> TrackAzon</span>
-            </h1>
+export const maxDuration = 300; // This function can run for a maximum of 300 seconds
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-            <p className="mt-6">
-              Discover the smart way to shop with PriceWise! Get real-time
-              updates on product availability and price changes, ensuring you
-              never miss out on a deal. Simply enter your product link and let
-              PriceWise do the rest. Start saving today!
-            </p>
+export async function GET(request: Request) {
+  try {
+    connectToDB();
 
-            <Searchbar />
-          </div>
-          <HeroCarousel />
-        </div>
-      </section>
+    const products = await Product.find({});
 
-      <section className="trending-section">
-        <h2 className="section-text">Trending</h2>
+    if (!products) throw new Error("No product fetched");
 
-        <div className="flex flex-wrap gap-x-8 gap-y-16">
-          {allProducts?.map((product) => (
-            <ProductCard key={product._id} product={product} />
-          ))}
-        </div>
-      </section>
-    </>
-  );
-};
+    // ======================== 1 SCRAPE LATEST PRODUCT DETAILS & UPDATE DB
+    const updatedProducts = await Promise.all(
+      products.map(async (currentProduct) => {
+        // Scrape product
+        const scrapedProduct = await scrapeAmazonProduct(currentProduct.url);
 
-export default Home;
+        if (!scrapedProduct) return;
+
+        const updatedPriceHistory = [
+          ...currentProduct.priceHistory,
+          {
+            price: scrapedProduct.currentPrice,
+          },
+        ];
+
+        const product = {
+          ...scrapedProduct,
+          priceHistory: updatedPriceHistory,
+          lowestPrice: getLowestPrice(updatedPriceHistory),
+          highestPrice: getHighestPrice(updatedPriceHistory),
+          averagePrice: getAveragePrice(updatedPriceHistory),
+        };
+
+        // Update Products in DB
+        const updatedProduct = await Product.findOneAndUpdate(
+          {
+            url: product.url,
+          },
+          product
+        );
+
+        // ======================== 2 CHECK EACH PRODUCT'S STATUS & SEND EMAIL ACCORDINGLY
+        const emailNotifType = getEmailNotifType(
+          scrapedProduct,
+          currentProduct
+        );
+
+        if (emailNotifType && updatedProduct.users.length > 0) {
+          const productInfo = {
+            title: updatedProduct.title,
+            url: updatedProduct.url,
+          };
+          // Construct emailContent
+          const emailContent = await generateEmailBody(
+            productInfo,
+            emailNotifType
+          );
+          // Get array of user emails
+          const userEmails = updatedProduct.users.map(
+            (user: any) => user.email
+          );
+          // Send email notification
+          await sendEmail(emailContent, userEmails);
+        }
+
+        return updatedProduct;
+      })
+    );
+
+    return NextResponse.json({
+      message: "Ok",
+      data: updatedProducts,
+    });
+  } catch (error: any) {
+    throw new Error(`Failed to get all products: ${error.message}`);
+  }
+}
