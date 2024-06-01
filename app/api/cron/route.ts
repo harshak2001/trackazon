@@ -6,13 +6,12 @@ import {
   getAveragePrice,
   getEmailNotifType,
 } from "@/lib/utils";
-
+import { connectToDB } from "@/lib/mongoose";
 import Product from "@/lib/models/product.model";
 import { scrapeAmazonProduct } from "@/lib/scraper";
 import { generateEmailBody, sendEmail } from "@/lib/nodemailer";
-import { connectToDB } from "@/lib/actions/mongoose";
 
-export const maxDuration = 60; // This function can run for a maximum of 300 seconds
+export const maxDuration = 300; // This function can run for a maximum of 300 seconds
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
@@ -24,16 +23,13 @@ export async function GET(request: Request) {
 
     if (!products) throw new Error("No product fetched");
 
-    // === 1 SCRAPE LATEST PRODUCT DETAILS & UPDATE DB
+    // ======================== 1 SCRAPE LATEST PRODUCT DETAILS & UPDATE DB
     const updatedProducts = await Promise.all(
       products.map(async (currentProduct) => {
         // Scrape product
         const scrapedProduct = await scrapeAmazonProduct(currentProduct.url);
 
-        if (!scrapedProduct) {
-          //   throw new Error("No product found");
-          return;
-        }
+        if (!scrapedProduct) return;
 
         const updatedPriceHistory = [
           ...currentProduct.priceHistory,
